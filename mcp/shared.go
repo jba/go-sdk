@@ -36,6 +36,9 @@ type methodHandler any // MethodHandler[*ClientSession] | MethodHandler[*ServerS
 // A Session is either a ClientSession or a ServerSession.
 type Session interface {
 	*ClientSession | *ServerSession
+	// ID returns the session ID, or the empty string if there is none.
+	ID() string
+
 	sendingMethodInfos() map[string]methodInfo
 	receivingMethodInfos() map[string]methodInfo
 	sendingMethodHandler() methodHandler
@@ -207,13 +210,7 @@ func sessionMethod[S Session, P Params, R Result](f func(S, context.Context, P) 
 
 // Error codes
 const (
-	// The error code to return when a resource isn't found.
-	// See https://modelcontextprotocol.io/specification/2025-03-26/server/resources#error-handling
-	// However, the code they chose is in the wrong space
-	// (see https://github.com/modelcontextprotocol/modelcontextprotocol/issues/509).
-	// so we pick a different one, arbitrarily for now (until they fix it).
-	// The immediate problem is that jsonprc2 defines -32002 as "server closing".
-	CodeResourceNotFound = -31002
+	CodeResourceNotFound = -32002
 	// The error code if the method exists and was called properly, but the peer does not support it.
 	CodeUnsupportedMethod = -31001
 )
@@ -242,9 +239,13 @@ func notifySessions[S Session](sessions []S, method string, params Params) {
 	}
 }
 
+// Meta is additional metadata for requests, responses and other types.
 type Meta map[string]any
 
-func (m Meta) GetMeta() map[string]any   { return m }
+// GetMeta returns metadata from a value.
+func (m Meta) GetMeta() map[string]any { return m }
+
+// SetMeta sets the metadata on a value.
 func (m *Meta) SetMeta(x map[string]any) { *m = x }
 
 const progressTokenKey = "progressToken"
@@ -269,7 +270,9 @@ func setProgressToken(p Params, pt any) {
 
 // Params is a parameter (input) type for an MCP call or notification.
 type Params interface {
+	// GetMeta returns metadata from a value.
 	GetMeta() map[string]any
+	// SetMeta sets the metadata on a value.
 	SetMeta(map[string]any)
 }
 
@@ -288,7 +291,9 @@ type RequestParams interface {
 
 // Result is a result of an MCP call.
 type Result interface {
+	// GetMeta returns metadata from a value.
 	GetMeta() map[string]any
+	// SetMeta sets the metadata on a value.
 	SetMeta(map[string]any)
 }
 
@@ -307,4 +312,42 @@ type listParams interface {
 type listResult[T any] interface {
 	// Returns a pointer to the param's NextCursor field.
 	nextCursorPtr() *string
+}
+
+// keepaliveSession represents a session that supports keepalive functionality.
+type keepaliveSession interface {
+	Ping(ctx context.Context, params *PingParams) error
+	Close() error
+}
+
+// startKeepalive starts the keepalive mechanism for a session.
+// It assigns the cancel function to the provided cancelPtr and starts a goroutine
+// that sends ping messages at the specified interval.
+func startKeepalive(session keepaliveSession, interval time.Duration, cancelPtr *context.CancelFunc) {
+	ctx, cancel := context.WithCancel(context.Background())
+	// Assign cancel function before starting goroutine to avoid race condition.
+	// We cannot return it because the caller may need to cancel during the
+	// window between goroutine scheduling and function return.
+	*cancelPtr = cancel
+
+	go func() {
+		ticker := time.NewTicker(interval)
+		defer ticker.Stop()
+
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+				pingCtx, pingCancel := context.WithTimeout(context.Background(), interval/2)
+				err := session.Ping(pingCtx, nil)
+				pingCancel()
+				if err != nil {
+					// Ping failed, close the session
+					_ = session.Close()
+					return
+				}
+			}
+		}
+	}()
 }

@@ -17,7 +17,7 @@ import (
 // A ToolHandler handles a call to tools/call.
 // [CallToolParams.Arguments] will contain a map[string]any that has been validated
 // against the input schema.
-// Perhaps this should be an alias for ToolHandlerFor[map[string]any, map[string]any].
+// TODO: Perhaps this should be an alias for ToolHandlerFor[map[string]any, map[string]any]?
 type ToolHandler func(context.Context, *ServerSession, *CallToolParamsFor[map[string]any]) (*CallToolResult, error)
 
 // A ToolHandlerFor handles a call to tools/call with typed arguments and results.
@@ -44,6 +44,8 @@ type ServerTool struct {
 // The input schema for the tool is extracted from the request type for the
 // handler, and used to unmmarshal and validate requests to the handler. This
 // schema may be customized using the [Input] option.
+//
+// TODO(jba): check that structured content is set in response.
 func NewServerTool[In, Out any](name, description string, handler ToolHandlerFor[In, Out], opts ...ToolOption) *ServerTool {
 	st, err := newServerToolErr[In, Out](name, description, handler, opts...)
 	if err != nil {
