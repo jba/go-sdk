@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"reflect"
 
+	"github.com/modelcontextprotocol/go-sdk/internal/util"
 	"github.com/modelcontextprotocol/go-sdk/jsonschema"
 )
 
@@ -89,7 +90,7 @@ func newServerTool[In, Out any](t *Tool, h ToolHandlerFor[In, Out]) (*serverTool
 func setSchema[T any](sfield **jsonschema.Schema, rfield **jsonschema.Resolved) error {
 	var err error
 	if *sfield == nil {
-		*sfield, err = jsonschema.For[T]()
+		*sfield, err = SchemaFor[T]()
 	}
 	if err != nil {
 		return err
@@ -123,6 +124,31 @@ func unmarshalSchema(data json.RawMessage, resolved *jsonschema.Resolved, v any)
 		}
 	}
 	return nil
+}
+
+// SchemaFor returns a JSON Schema for type T.
+// It is like [jsonschema.For], but also uses "mcp" struct field tags
+// for property descriptions.
+//
+// For example, the call
+//
+//	SchemaFor[struct{ B int `mcp:"desc"` }]()
+//
+// returns a schema with this value for "properties":
+//
+//	{"B": {"type": "integer", "description": "desc"}}
+func SchemaFor[T any]() (*jsonschema.Schema, error) {
+	// Infer the schema based on "json" tags alone.
+	s, err := jsonschema.For[T]()
+	if err != nil {
+		return nil, err
+	}
+
+	// Add descriptions from "mcp" tags.
+	if err := addDescriptions(reflect.TypeFor[T](), s); err != nil {
+		return nil, err
+	}
+	return s, nil
 }
 
 // schemaJSON returns the JSON value for s as a string, or a string indicating an error.
