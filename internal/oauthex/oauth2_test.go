@@ -268,3 +268,76 @@ func (h *fakeResourceHandler) installHandlers(serverURL string) {
 		}
 	}))
 }
+
+func Test_checkURLScheme(t *testing.T) {
+	tests := []struct {
+		name    string
+		u       string
+		wantErr bool
+	}{
+		{
+			name:    "empty url",
+			u:       "",
+			wantErr: false,
+		},
+		{
+			name:    "valid http",
+			u:       "http://example.com",
+			wantErr: false,
+		},
+		{
+			name:    "valid https",
+			u:       "https://example.com",
+			wantErr: false,
+		},
+		{
+			name:    "valid https with uppercase scheme",
+			u:       "HTTPS://example.com",
+			wantErr: false,
+		},
+		{
+			name:    "url with no scheme",
+			u:       "example.com",
+			wantErr: false,
+		},
+		{
+			name:    "disallowed javascript scheme",
+			u:       "javascript:alert('XSS')",
+			wantErr: true,
+		},
+		{
+			name:    "disallowed javascript scheme with uppercase",
+			u:       "Javascript:alert('XSS')",
+			wantErr: true,
+		},
+		{
+			name:    "disallowed data scheme",
+			u:       "data:text/html,<html>",
+			wantErr: true,
+		},
+		{
+			name:    "disallowed vbscript scheme",
+			u:       "vbscript:msgbox(\"XSS\")",
+			wantErr: true,
+		},
+		{
+			name:    "invalid url format",
+			u:       "://invalid-url",
+			wantErr: true,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			gotErr := checkURLScheme(tt.u)
+			if gotErr != nil {
+				if !tt.wantErr {
+					t.Errorf("checkURLScheme() failed: %v", gotErr)
+				}
+				return
+			}
+			if tt.wantErr {
+				t.Fatal("checkURLScheme() succeeded unexpectedly")
+			}
+		})
+	}
+}
